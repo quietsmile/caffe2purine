@@ -55,7 +55,7 @@ VirtualWeightInitialization;
 }
 
 int main(int argc, char** argv) {
-  ::InitLogging(argv[0]);
+  google::InitGoogleLogging(argv[0]);
   // initilize MPI
   int ret;
   MPI_CHECK(MPI_Init_thread(&argc, &argv, MPI_THREAD_MULTIPLE, &ret));
@@ -105,11 +105,11 @@ int main(int argc, char** argv) {
     parallel_net->sync();
 
     // verbose
-    if (iter % 100 == 0 && current_rank() == 0) {
+    if (iter % 10 == 0 && current_rank() == 0) {
         duration = std::chrono::duration_cast<std::chrono::milliseconds>
             (std::chrono::system_clock::now() - start);
         cout << "iteration: " << iter << ", loss: "
-        << parallel_net->loss()[0] << ", time: " duration.count() << endl;
+        << parallel_net->loss()[0] << ", time: " << duration.count() << endl;
     }
     if (iter % 10000 == 0) {
       parallel_net->save("./net_no_aux_dump_iter_"

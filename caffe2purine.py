@@ -27,7 +27,9 @@ class layer:
 class data_layer(layer):
     def __init__(self, type, name, bottom, top, image_size=image_crop_size, channel=image_channel):
         layer.__init__(self, type, name, bottom, top)
+
         self.image_size = image_size
+        #self.image_size = image_crop_size
         self.channel = channel
         # these three names are fixed
         self.name = 'data'
@@ -177,8 +179,8 @@ class concat_layer(layer):
         # maybe the dic should be global
         fid.write(global_space + 'ConcatLayer* %s = createGraph<ConcatLayer>("%s",\n' % (self.name, self.name))
         fid.write(global_space + global_space + 'ConcatLayer::param_tuple(Split::CHANNELS));\n')
-        fid.write(global_space + 'ActivationLayer* %s = createGraph<ActivationLayer>("%s",\n' % (self.act_name, self.act_name))
-        fid.write(global_space + global_space + 'ActivationLayer::param_tuple("relu", true));\n')
+        #fid.write(global_space + 'ActivationLayer* %s = createGraph<ActivationLayer>("%s",\n' % (self.act_name, self.act_name))
+        #fid.write(global_space + global_space + 'ActivationLayer::param_tuple("relu", true));\n')
 
 
 class softmaxloss_layer(layer):
@@ -257,7 +259,7 @@ def deal_with_layer(layer):
         
         if hasattr(layer.convolution_param,'group'):
             if(layer.convolution_param.group >= 2):
-                raise Exception('group >= 2 is not supported!')
+                warnings.warn('group >= 2 is not supported right now! It is automatically changed to 1!')
 
         #Nowadays, relu is dominant in CNN
         neuron = 'relu'
@@ -288,7 +290,7 @@ def deal_with_layer(layer):
         if layer.pooling_param.pool == 0:
             pool_strategy = 'max'
         elif layer.pooling_param.pool == 1:
-            pool_strategy = 'avg'
+            pool_strategy = 'average'
         else:
             unrecognized_pooling_strategy
 
@@ -322,8 +324,8 @@ def deal_with_layer(layer):
         # when type is xavier, std is useless
         if hasattr(layer.inner_product_param, 'weight_filler'):
             w_init_type = layer.inner_product_param.weight_filler.type
-            if hasattr(layer.convolution_param.weight_filler, 'std'):
-                w_init_value = layer.convolution_param.weight_filler.std
+            if hasattr(layer.inner_product_param.weight_filler, 'std'):
+                w_init_value = layer.inner_product_param.weight_filler.std
             else:
                 w_init_value = global_init_value
         else:
@@ -422,13 +424,14 @@ def run(argv):
     calculateInAndOutSize()
 
 #----------------------- output information to separate files -----------------------
-    fid = open('layer_details.txt','w')
+    folder = 'tmp/'
+    fid = open(folder + 'layer_details.txt','w')
     for layer in all_layers:
         layer.Print(fid)
     fid.close()
 
 
-    fid = open('layer_relations.txt','w')
+    fid = open(folder + 'layer_relations.txt','w')
     # first change the bottom of a layer which is after a layer with dropout
     dic = {}
     for layer in all_layers:
@@ -453,12 +456,15 @@ def run(argv):
             for j in layer.bottom:
                 tmp += '%s->top()[1], ' % j
             tmp = tmp[:-2]
-            tmp += '} >> *%s >> *%s' % (layer.name, layer.act_name)
+            #tmp += '} >> *%s >> *%s' % (layer.name, layer.act_name)
+            tmp += '} >> *%s;' % (layer.name)
             fid.write(tmp+'\n')
+            continue
 
         for j in layer.bottom:
             if(dic[j].type=='Data'):
-                fid.write(global_space + '*%s >> *%s;\n' % ('B{ data_, data_diff_}', layer.name))
+                fid.write(global_space + '%s >> *%s;\n' % ('B{ data_, data_diff_}', layer.name))
+                continue
             if( hasattr(dic[j], 'with_dropout')):
                 if(dic[j].with_dropout):
                     fid.write(global_space + '*%s >> *%s;\n' % (dic[j].dropout_layer_name, layer.name))
@@ -474,7 +480,7 @@ def run(argv):
     fid.close()
 
 
-    fid = open('loss_info.txt','w')
+    fid = open(folder + 'loss_info.txt','w')
     softmaxloss_layer_name = ""
     accuracy_layer_name = ""
     for layer in all_layers:
@@ -487,7 +493,7 @@ def run(argv):
 
 
     layer_with_weights = [layer.name for layer in all_layers if layer.type.startswith('Conv') or layer.type.startswith('Inner')]
-    fid = open('weight_info.txt','w')
+    fid = open(folder + 'weight_info.txt','w')
     tmp = global_space + 'vector<Layer*> layers = {'
     cnt = 0
     for layername in layer_with_weights:
@@ -506,7 +512,7 @@ def run(argv):
     # calculate weights of each layer, support xavier and gaussian
 
 
-    fid = open('weight_initialization.txt', 'w')
+    fid = open(folder + 'weight_initialization.txt', 'w')
     index = 0
     for layername in layer_with_weights:
         if(dic[layername].w_init_type == 'gaussian'):
@@ -524,23 +530,23 @@ def run(argv):
 
 
 #----------------------------------- all parameters ----------------------------------
-    infoVirtualNetName = 'NewNet'
+    infoVirtualNetName = 'NewModel'
 
     # How to construct each layer
-    infoVirtualLayerDetails = ''.join(open('layer_details.txt').readlines())
+    infoVirtualLayerDetails = ''.join(open(folder + 'layer_details.txt').readlines())
     # How to construct layer interconnections
-    infoVirtualLayerRelations = ''.join(open('layer_relations.txt').readlines())
+    infoVirtualLayerRelations = ''.join(open(folder + 'layer_relations.txt').readlines())
     # How to set loss layer
-    infoVirtualLossInfo = ''.join(open('loss_info.txt').readlines())
+    infoVirtualLossInfo = ''.join(open(folder + 'loss_info.txt').readlines())
     # Layers with weight (Convolution and InnerProductLayer)
-    infoVirtualWeightInfo = ''.join(open('weight_info.txt').readlines())
+    infoVirtualWeightInfo = ''.join(open(folder + 'weight_info.txt').readlines())
 
     infoVirtualBatchSizePerNode = str(64)
     infoVirtualDataPath = '"../data/bowl_train_lmdb"'
     infoVirtualDataMean = '"../data/bowl_mean.binaryproto"';
     infoVirtualWeightNum = str(len(layer_with_weights) * 2)
     infoVirtualImageSize = str(224)
-    infoVirtualWeightInitialization = ''.join(open('weight_initialization.txt').readlines())
+    infoVirtualWeightInitialization = ''.join(open(folder + 'weight_initialization.txt').readlines())
     infoVirtualAvailabelNodes = calculateNodePairs([[0,3]])
 #-------------------------------------   combine information   -----------------------
 
@@ -550,20 +556,21 @@ def run(argv):
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualLossInfo;',infoVirtualLossInfo)
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualWeightInfo;',infoVirtualWeightInfo)
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualNetName;',infoVirtualNetName)
-    fid = open('NewModel.hpp','w')
+    fid = open('%s.hpp' % infoVirtualNetName,'w')
     fid.write(infoVirtualNethpp)
     fid.close()
 
     infoVirtualNetcpp = ''.join(open('VirtualNet.cpp').readlines())
-    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualBatchSizePerNode;',infoVirtualBatchSizePerNode)
-    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualDataPath;',infoVirtualDataPath)
-    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualDataMean;',infoVirtualDataMean)
-    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualWeightNum;',infoVirtualWeightNum)
+    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualModel',infoVirtualNetName)
+    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualBatchSizePerNode;',infoVirtualBatchSizePerNode+';')
+    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualDataPath;',infoVirtualDataPath+';')
+    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualDataMean;',infoVirtualDataMean+';')
+    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualWeightNum;',infoVirtualWeightNum+';')
     infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualNetName;',infoVirtualNetName)
-    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualImageSize;',infoVirtualImageSize)
+    infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualImageSize;',infoVirtualImageSize+';')
     infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualWeightInitialization;',infoVirtualWeightInitialization)
     infoVirtualNetcpp = infoVirtualNetcpp.replace('VirtualAvailableNodes;',infoVirtualAvailabelNodes)
-    fid = open('NewModel.cpp','w')
+    fid = open('%s.cpp' % infoVirtualNetName,'w')
     fid.write(infoVirtualNetcpp)
     fid.close()
     

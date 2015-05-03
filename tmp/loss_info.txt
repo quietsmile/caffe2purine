@@ -1,0 +1,1 @@
+  loss_ = { loss->loss()[0], accuracy->loss()[0] };
