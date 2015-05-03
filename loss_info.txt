@@ -1,1 +1,1 @@
-  loss_ = { loss->loss()[0], accuracy->loss()[0] };
+  loss_ = { loss3_loss3->loss()[0], loss3_top_5->loss()[0] };

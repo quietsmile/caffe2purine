@@ -1,6 +1,7 @@
 import os, sys
 import caffe_pb2                                                                                             
 import warnings
+import math
 from google.protobuf import text_format                                                                      
 
 global_space = "  "
@@ -13,9 +14,15 @@ all_layers = []
 class layer:
     def __init__(self, type, name, bottom, top):
         self.type = type
-        self.name = name
-        self.bottom = bottom
-        self.top = top
+        # this is because layer.name will be used as vairable names in purine!
+        self.name = name.replace('/','_')
+        self.name = self.name.replace('-','_')
+        self.bottom = [i.replace('/','_') for i in bottom]
+        self.bottom = [i.replace('-','_') for i in self.bottom]
+        self.top = [i.replace('/','_') for i in top]
+        self.top = [i.replace('-','_') for i in self.top]
+        assert(self.type=='Concat' or self.type=='Accuracy' or self.type=='SoftmaxWithLoss' or len(self.bottom) <= 1)
+        assert(self.type=='Data' or len(self.top) <= 1)
 
 class data_layer(layer):
     def __init__(self, type, name, bottom, top, image_size=image_crop_size, channel=image_channel):
@@ -31,8 +38,7 @@ class data_layer(layer):
 
     def update_out_size(self):
         self.out_size = self.in_size[:]
-    def Print(self):
-        pass 
+
     def Print(self, fid):
         fid.write(global_space + '%s_ = create("%s", { %s, %d, %d, %d });\n' % (self.name, self.name, "batch_size", self.channel, self.image_size, self.image_size))
         fid.write(global_space + '%s_ = create("%s", { %s, %d, %d, %d });\n' % (self.diff_name, self.diff_name, "batch_size", self.channel, self.image_size, self.image_size))
@@ -52,10 +58,6 @@ class lrn_layer(layer):
     def update_out_size(self):
         self.out_size = self.in_size[:]
 
-    def Print(self):
-        print global_space + 'LRNLayer* %s = createGraph<LRNLayer>("%s",' % (self.name, self.name)
-        print global_space + global_space + 'LRNLayer::param_tuple(%f, %f, %d));' % (self.alpha, self.beta, 
-                self.local_size)
     def Print(self, fid):
         fid.write(global_space + 'LRNLayer* %s = createGraph<LRNLayer>("%s",' % (self.name, self.name))
         fid.write('\n')
@@ -65,13 +67,13 @@ class lrn_layer(layer):
 
 
 class conv_layer(layer):
-    def __init__(self, type, name, bottom, top, pad, stride, kernel, filter, nonlinear_type, 
+    def __init__(self, type, name, bottom, top, pad, stride, kernel, filters, nonlinear_type, 
             w_init_type, w_init_value, b_init_type, b_init_value, with_dropout=0, dropout_layer_name=""):
         layer.__init__(self, type, name, bottom, top)
         self.pad = pad
         self.stride = stride
         self.kernel = kernel
-        self.filter = filter
+        self.filters = filters
         self.nonlinear_type = nonlinear_type
         self.w_init_type = w_init_type
         self.w_init_value = w_init_value
@@ -83,19 +85,15 @@ class conv_layer(layer):
         self.out_size = [0,0,0]
         
     def update_out_size(self):
-        self.out_size[0] = self.in_size[0]
+        self.out_size[0] = self.filters
         self.out_size[1] = (self.in_size[1] + 2 * self.pad - self.kernel) / self.stride + 1
         self.out_size[2] = self.out_size[1]
         
-    def Print(self):
-        print global_space + 'ConvLayer* %s = createGraph<ConvLayer>("%s",' % (self.name, self.name)
-        print global_space + global_space + 'ConvLayer::param_tuple(%d, %d, %d, %d, %d, %d, %d, "%s"));' % (self.pad, self.pad, 
-                self.stride, self.stride, self.kernel, self.kernel, self.filter, self.nonlinear_type)
     def Print(self, fid):
         fid.write(global_space + 'ConvLayer* %s = createGraph<ConvLayer>("%s",' % (self.name, self.name))
         fid.write('\n')
         fid.write(global_space + global_space + 'ConvLayer::param_tuple(%d, %d, %d, %d, %d, %d, %d, "%s"));' % (self.pad, self.pad, 
-                self.stride, self.stride, self.kernel, self.kernel, self.filter, self.nonlinear_type))
+                self.stride, self.stride, self.kernel, self.kernel, self.filters, self.nonlinear_type))
         fid.write('\n')
 
 
@@ -112,12 +110,11 @@ class pool_layer(layer):
 
     def update_out_size(self):
         self.out_size[0] = self.in_size[0]
-        self.out_size[1] = (self.in_size[1] + 2 * self.pad - self.kernel) / self.stride + 1
+        self.out_size[1] = int(math.ceil(float(self.in_size[1] + 2 * self.pad - self.kernel) / self.stride)) + 1
+        if((self.out_size[1] - 1) * self.stride >= self.in_size[1] + self.pad):
+            self.out_size[1] -= 1
         self.out_size[2] = self.out_size[1]
 
-    def Print(self):
-        print global_space + 'PoolLayer* %s = createGraph<PoolLayer>("%s",' % (self.name, self.name)
-        print global_space + global_space + 'PoolLayer::param_tuple("%s", %d, %d, %d, %d, %d, %d));' % (self.pooltype, self.kernel, self.kernel, self.stride, self.stride, self.pad, self.pad)
     def Print(self, fid):
         fid.write(global_space + 'PoolLayer* %s = createGraph<PoolLayer>("%s",' % (self.name, self.name))
         fid.write('\n')
@@ -144,9 +141,6 @@ class fc_layer(layer):
     def update_out_size(self):
         self.out_size = [self.hidden, 1, 1]
 
-    def Print(self):
-        print global_space + 'InnerProdLayer* %s = createGraph<InnerProdLayer>("%s",' % (self.name, self.name)
-        print global_space + global_space + 'InnerProdLayer::param_tuple(%d, ""));' % self.hidden
     def Print(self,fid):
         fid.write(global_space + 'InnerProdLayer* %s = createGraph<InnerProdLayer>("%s",' % (self.name, self.name))
         fid.write('\n')
@@ -164,21 +158,33 @@ class dropout_layer(layer):
     def update_out_size(self):
         self.out_size = self.in_size[:]
 
-    def Print(self):
-        print global_space + 'DropoutLayer* %s = createGraph<DropoutLayer>("%s",' % (self.name, self.name)
-        print global_space + global_space + 'DropoutLayer::param_tuple(%f, test, false));' % self.ratio
     def Print(self, fid):
         fid.write(global_space + 'DropoutLayer* %s = createGraph<DropoutLayer>("%s",' % (self.name, self.name))
         fid.write('\n')
         fid.write(global_space + global_space + 'DropoutLayer::param_tuple(%f, test, false));' % self.ratio)
         fid.write('\n')
 
+class concat_layer(layer):
+    def __init__(self, type, name, bottom, top):
+        layer.__init__(self, type, name, bottom, top)
+        self.in_size = [0,0,0]
+        self.out_size = [0,0,0]
+        self.act_name = 'act_of_' + self.name
+
+    def update_out_size(self):
+        self.out_size = self.in_size[:]
+    def Print(self, fid):
+        # maybe the dic should be global
+        fid.write(global_space + 'ConcatLayer* %s = createGraph<ConcatLayer>("%s",\n' % (self.name, self.name))
+        fid.write(global_space + global_space + 'ConcatLayer::param_tuple(Split::CHANNELS));\n')
+        fid.write(global_space + 'ActivationLayer* %s = createGraph<ActivationLayer>("%s",\n' % (self.act_name, self.act_name))
+        fid.write(global_space + global_space + 'ActivationLayer::param_tuple("relu", true));\n')
+
+
 class softmaxloss_layer(layer):
     def __init__(self, type, name, bottom, top):
         layer.__init__(self, type, name, bottom, top)
-    def Print(self):
-        print global_space + 'SoftmaxLossLayer* %s = createGraph<SoftmaxLossLayer>("%s",' % (self.name, self.name)
-        print global_space + global_space + 'SoftmaxLossLayer::param_tuple(1.));'
+
     def Print(self, fid):
         fid.write(global_space + 'SoftmaxLossLayer* %s = createGraph<SoftmaxLossLayer>("%s",' % (self.name, self.name))
         fid.write('\n')
@@ -188,23 +194,24 @@ class softmaxloss_layer(layer):
 class accuracy_layer(layer):
     def __init__(self, type, name, bottom, top):
         layer.__init__(self, type, name, bottom, top)
-    def Print(self):
-        print global_space + 'Acc* %s = createGraph<Acc>("%s", rank_, -1, Acc::param_tuple(1));' % (self.name, self.name)
+
     def Print(self, fid):
         fid.write(global_space + 'Acc* %s = createGraph<Acc>("%s", rank_, -1, Acc::param_tuple(1));' % (self.name, self.name))
         fid.write('\n')
 
 
-
 def deal_with_layer(layer):
     global all_layers
-
+    
     if (layer.type == 'Data'):
         if (layer.include[0].phase == 0): # 0 = train, 1 = test
             data_source = layer.data_param.source
             warnings.warn('Data source should be added manually, only this code only construct the model structure!')
-            data = data_layer(layer.type, layer.name, [], layer.top,
-                    layer.data_param.batch_size)
+            if(hasattr(layer.transform_param, 'crop_size')):
+                data = data_layer(layer.type, layer.name, [], layer.top,
+                        layer.transform_param.crop_size)
+            else:
+                data = data_layer(layer.type, layer.name, [], layer.top)
             all_layers.append(data)
     elif(layer.type == 'Convolution'):
         if hasattr(layer.convolution_param, 'num_output'):
@@ -247,6 +254,10 @@ def deal_with_layer(layer):
             b_init_type = 'constant'
             b_init_value = 0
 
+        
+        if hasattr(layer.convolution_param,'group'):
+            if(layer.convolution_param.group >= 2):
+                raise Exception('group >= 2 is not supported!')
 
         #Nowadays, relu is dominant in CNN
         neuron = 'relu'
@@ -352,8 +363,8 @@ def deal_with_layer(layer):
         all_layers.append(dropout)
 
     elif(layer.type == 'Concat'):
-        warnings.warn('Concat layer is not supported! This code is not working properly with this warning!')
-        raise Exception('Concat Layer is Unimplemented')
+        concat = concat_layer(layer.type, layer.name, layer.bottom, layer.top)
+        all_layers.append(concat)
     elif(layer.type == 'SoftmaxWithLoss'):
         softmax = softmaxloss_layer(layer.type, layer.name, layer.bottom, layer.top)
         all_layers.append(softmax)
@@ -434,6 +445,17 @@ def run(argv):
             fid.write(global_space + 'vector<Blob*>{ %s->top()[0] } >> *%s;\n' % (layer.bottom[0], layer.name))
             continue
 
+        if(layer.type=='Concat'):
+            tmp = global_space + 'vector<Blob*> {'
+            for j in layer.bottom:
+                tmp += '%s->top()[0], ' % j
+            tmp += '\n' + global_space + global_space
+            for j in layer.bottom:
+                tmp += '%s->top()[1], ' % j
+            tmp = tmp[:-2]
+            tmp += '} >> *%s >> *%s' % (layer.name, layer.act_name)
+            fid.write(tmp+'\n')
+
         for j in layer.bottom:
             if(dic[j].type=='Data'):
                 fid.write(global_space + '*%s >> *%s;\n' % ('B{ data_, data_diff_}', layer.name))
@@ -490,7 +512,7 @@ def run(argv):
         if(dic[layername].w_init_type == 'gaussian'):
             tmp = global_space + global_space + 'parallel_net->init<Gaussian>({%d}, Gaussian::param_tuple(0., %f));' % (index, dic[layername].w_init_value)
         elif(dic[layername].w_init_type == 'xavier'):
-            scale = sqrt(3.0 / reduce(lambda x,y:x*y, dic[layername].in_size))
+            scale = math.sqrt(3.0 / reduce(lambda x,y:x*y, dic[layername].in_size))
             tmp = global_space + global_space + 'parallel_net->init<Uniform>({%d}, Uniform::param_tuple(-%f, %f));' % (index, scale, scale)
         fid.write(tmp + '\n')
         index += 1
@@ -553,5 +575,4 @@ if __name__ == "__main__":
         exit(0)
 
     run(sys.argv)
-    print all_layers
 
