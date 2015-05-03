@@ -10,7 +10,7 @@ using namespace std;
 int batch_size = 64
 string source = "../data/bowl_train_lmdb"
 string mean_file = "../data/bowl_mean.binaryproto"
-const int weight_num = 
+const int weight_num = 16
 const int image_size = 224
 
 using namespace purine;
@@ -48,7 +48,23 @@ void initialize(DataParallel<VirtualNetName<false>, AllReduce>* parallel_net,
         [](int i)->int {
           return i * 2 + 1;
         });
-    
+    parallel_net->init<Gaussian>({0}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({1}, Constant::param_tuple(0.000000));
+    parallel_net->init<Gaussian>({2}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({3}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({4}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({5}, Constant::param_tuple(0.000000));
+    parallel_net->init<Gaussian>({6}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({7}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({8}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({9}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({10}, Gaussian::param_tuple(0., 1.000000));
+    parallel_net->init<Constant>({11}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({12}, Gaussian::param_tuple(0., 1.000000));
+    parallel_net->init<Constant>({13}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({14}, Gaussian::param_tuple(0., 1.000000));
+    parallel_net->init<Constant>({15}, Constant::param_tuple(0.000000));
+
   } else {
     parallel_net->load(snapshot);
   }

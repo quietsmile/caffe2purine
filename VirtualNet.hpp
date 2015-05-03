@@ -33,11 +33,15 @@ class VirtualNetName : public Graph {
 
 template <bool test>
 VirtualNetName<test>::VirtualNetName(int rank, int device) : Graph(rank, device) {
-  VirtualLayerDetails;
-  VirtualLayerRelations;
-  VirtualLossLayer;
-  VirtualLossInfo;
-  VirtualWeightInfo;
+
+VirtualLayerDetails;
+
+VirtualLayerRelations;
+
+VirtualLossInfo;
+
+VirtualWeightInfo;
+
   for (auto layer : layers) {
     const vector<Blob*>& w = layer->weight_data();
     weight_data_.insert(weight_data_.end(), w.begin(), w.end());

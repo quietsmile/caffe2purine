@@ -8,31 +8,66 @@ image_crop_size = 224
 image_channel = 3
 global_init_value = 0.01
 
-conv_cnt = 0
-pool_cnt = 0
-fc_cnt = 0
-dropout_cnt = 0
 all_layers = []
 
 class layer:
-    def __init__(self, type, name):
+    def __init__(self, type, name, bottom, top):
         self.type = type
         self.name = name
+        self.bottom = bottom
+        self.top = top
 
 class data_layer(layer):
-    def __init__(self, type, name, image_size=image_crop_size, channel=image_channel):
-        layer.__init__(self, type, name)
+    def __init__(self, type, name, bottom, top, image_size=image_crop_size, channel=image_channel):
+        layer.__init__(self, type, name, bottom, top)
         self.image_size = image_size
         self.channel = channel
+        # these three names are fixed
+        self.name = 'data'
+        self.diff_name = 'data_diff'
+        self.label_name = 'label'
+        self.in_size = [self.channel, self.image_size, self.image_size]
+        self.out_size = [0,0,0]
+
+    def update_out_size(self):
+        self.out_size = self.in_size[:]
     def Print(self):
-        print global_space + '%s = create("%s", { %s, %d, %d, %d });' % (self.name, self.name, "batch_size",
-                self.channel, self.image_size, self.image_size)
+        pass 
+    def Print(self, fid):
+        fid.write(global_space + '%s_ = create("%s", { %s, %d, %d, %d });\n' % (self.name, self.name, "batch_size", self.channel, self.image_size, self.image_size))
+        fid.write(global_space + '%s_ = create("%s", { %s, %d, %d, %d });\n' % (self.diff_name, self.diff_name, "batch_size", self.channel, self.image_size, self.image_size))
+        fid.write(global_space + '%s_ = create("%s", { %s, %d, %d, %d });\n' % (self.label_name, self.label_name, "batch_size",1,1,1))
+
+
+
+class lrn_layer(layer):
+    def __init__(self, type, name, bottom, top, local_size, alpha, beta):
+        layer.__init__(self, type, name, bottom, top)
+        self.local_size = local_size
+        self.alpha = alpha
+        self.beta = beta
+        self.in_size = [0,0,0]
+        self.out_size = [0,0,0]
+
+    def update_out_size(self):
+        self.out_size = self.in_size[:]
+
+    def Print(self):
+        print global_space + 'LRNLayer* %s = createGraph<LRNLayer>("%s",' % (self.name, self.name)
+        print global_space + global_space + 'LRNLayer::param_tuple(%f, %f, %d));' % (self.alpha, self.beta, 
+                self.local_size)
+    def Print(self, fid):
+        fid.write(global_space + 'LRNLayer* %s = createGraph<LRNLayer>("%s",' % (self.name, self.name))
+        fid.write('\n')
+        fid.write(global_space + global_space + 'LRNLayer::param_tuple(%f, %f, %d));' % (self.alpha, self.beta, 
+                self.local_size))
+        fid.write('\n')
 
 
 class conv_layer(layer):
-    def __init__(self, type, name, pad, stride, kernel, filter, nonlinear_type, 
-            w_init_type, w_init_value, b_init_type, b_init_value):
-        layer.__init__(self, type, name)
+    def __init__(self, type, name, bottom, top, pad, stride, kernel, filter, nonlinear_type, 
+            w_init_type, w_init_value, b_init_type, b_init_value, with_dropout=0, dropout_layer_name=""):
+        layer.__init__(self, type, name, bottom, top)
         self.pad = pad
         self.stride = stride
         self.kernel = kernel
@@ -42,135 +77,135 @@ class conv_layer(layer):
         self.w_init_value = w_init_value
         self.b_init_type = b_init_type
         self.b_init_value = b_init_value
+        self.with_dropout = with_dropout
+        self.dropout_layer_name = dropout_layer_name
+        self.in_size = [0,0,0]
+        self.out_size = [0,0,0]
+        
+    def update_out_size(self):
+        self.out_size[0] = self.in_size[0]
+        self.out_size[1] = (self.in_size[1] + 2 * self.pad - self.kernel) / self.stride + 1
+        self.out_size[2] = self.out_size[1]
+        
     def Print(self):
-        print global_space + 'ConvLayer* %s = createGraph<ConvLayer>("%s",' % (self.var_name, self.type_name)
+        print global_space + 'ConvLayer* %s = createGraph<ConvLayer>("%s",' % (self.name, self.name)
         print global_space + global_space + 'ConvLayer::param_tuple(%d, %d, %d, %d, %d, %d, %d, "%s"));' % (self.pad, self.pad, 
                 self.stride, self.stride, self.kernel, self.kernel, self.filter, self.nonlinear_type)
+    def Print(self, fid):
+        fid.write(global_space + 'ConvLayer* %s = createGraph<ConvLayer>("%s",' % (self.name, self.name))
+        fid.write('\n')
+        fid.write(global_space + global_space + 'ConvLayer::param_tuple(%d, %d, %d, %d, %d, %d, %d, "%s"));' % (self.pad, self.pad, 
+                self.stride, self.stride, self.kernel, self.kernel, self.filter, self.nonlinear_type))
+        fid.write('\n')
 
 
 
 class pool_layer(layer):
-    def __init__(self, name, var_name, pooltype, kernel, stride, pad):
-        layer.__init__(self, name)
-        self.var_name = var_name
+    def __init__(self, type, name, bottom, top, pooltype, kernel, stride, pad):
+        layer.__init__(self, type, name, bottom, top)
         self.pooltype = pooltype
         self.pad = pad
         self.stride = stride
         self.kernel = kernel
+        self.in_size = [0,0,0]
+        self.out_size = [0,0,0]
+
+    def update_out_size(self):
+        self.out_size[0] = self.in_size[0]
+        self.out_size[1] = (self.in_size[1] + 2 * self.pad - self.kernel) / self.stride + 1
+        self.out_size[2] = self.out_size[1]
+
     def Print(self):
-        print global_space + 'PoolLayer* %s = createGraph<PoolLayer>("%s",' % (self.var_name, self.type_name)
+        print global_space + 'PoolLayer* %s = createGraph<PoolLayer>("%s",' % (self.name, self.name)
         print global_space + global_space + 'PoolLayer::param_tuple("%s", %d, %d, %d, %d, %d, %d));' % (self.pooltype, self.kernel, self.kernel, self.stride, self.stride, self.pad, self.pad)
+    def Print(self, fid):
+        fid.write(global_space + 'PoolLayer* %s = createGraph<PoolLayer>("%s",' % (self.name, self.name))
+        fid.write('\n')
+        fid.write(global_space + global_space + 'PoolLayer::param_tuple("%s", %d, %d, %d, %d, %d, %d));' % (self.pooltype, self.kernel, self.kernel, self.stride, self.stride, self.pad, self.pad))
+        fid.write('\n')
+
 
 
 
 class fc_layer(layer):
-    def __init__(self, name, var_name, hidden,
-            w_init_type, w_init_value, b_init_type, b_init_value):
-        layer.__init__(self, name)
+    def __init__(self, type, name, bottom, top, hidden,
+            w_init_type, w_init_value, b_init_type, b_init_value, with_dropout=0, dropout_layer_name=""):
+        layer.__init__(self, type, name, bottom, top)
         self.hidden = hidden
-        self.var_name = var_name
         self.w_init_type = w_init_type
         self.w_init_value = w_init_value
         self.b_init_type = b_init_type
         self.b_init_value = b_init_value
+        self.with_dropout = with_dropout
+        self.dropout_layer_name = dropout_layer_name
+        self.in_size = [0,0,0]
+        self.out_size = [0,0,0]
+
+    def update_out_size(self):
+        self.out_size = [self.hidden, 1, 1]
+
     def Print(self):
-        print global_space + 'InnerProdLayer* %s = createGraph<InnerProdLayer>("%s",' % (self.var_name, self.type_name)
+        print global_space + 'InnerProdLayer* %s = createGraph<InnerProdLayer>("%s",' % (self.name, self.name)
         print global_space + global_space + 'InnerProdLayer::param_tuple(%d, ""));' % self.hidden
+    def Print(self,fid):
+        fid.write(global_space + 'InnerProdLayer* %s = createGraph<InnerProdLayer>("%s",' % (self.name, self.name))
+        fid.write('\n')
+        fid.write(global_space + global_space + 'InnerProdLayer::param_tuple(%d, ""));' % self.hidden)
+        fid.write('\n')
 
 
 class dropout_layer(layer):
-    def __init__(self, name, var_name, ratio):
-        layer.__init__(self, name)
+    def __init__(self, type, name, bottom, top, ratio):
+        layer.__init__(self, type, name, bottom, top)
         self.ratio = ratio
-        self.var_name = var_name
+        self.in_size = [0,0,0]
+        self.out_size = [0,0,0]
+
+    def update_out_size(self):
+        self.out_size = self.in_size[:]
+
     def Print(self):
-        print global_space + 'DropoutLayer* %s = createGraph<DropoutLayer>("%s",' % (self.var_name, self.type_name)
+        print global_space + 'DropoutLayer* %s = createGraph<DropoutLayer>("%s",' % (self.name, self.name)
         print global_space + global_space + 'DropoutLayer::param_tuple(%f, test, false));' % self.ratio
+    def Print(self, fid):
+        fid.write(global_space + 'DropoutLayer* %s = createGraph<DropoutLayer>("%s",' % (self.name, self.name))
+        fid.write('\n')
+        fid.write(global_space + global_space + 'DropoutLayer::param_tuple(%f, test, false));' % self.ratio)
+        fid.write('\n')
 
-class cost_layer(layer):
-    def __init__(self, name):
-        layer.__init__(self, name)
+class softmaxloss_layer(layer):
+    def __init__(self, type, name, bottom, top):
+        layer.__init__(self, type, name, bottom, top)
+    def Print(self):
+        print global_space + 'SoftmaxLossLayer* %s = createGraph<SoftmaxLossLayer>("%s",' % (self.name, self.name)
+        print global_space + global_space + 'SoftmaxLossLayer::param_tuple(1.));'
+    def Print(self, fid):
+        fid.write(global_space + 'SoftmaxLossLayer* %s = createGraph<SoftmaxLossLayer>("%s",' % (self.name, self.name))
+        fid.write('\n')
+        fid.write(global_space + global_space + 'SoftmaxLossLayer::param_tuple(1.));')
+        fid.write('\n')
 
+class accuracy_layer(layer):
+    def __init__(self, type, name, bottom, top):
+        layer.__init__(self, type, name, bottom, top)
+    def Print(self):
+        print global_space + 'Acc* %s = createGraph<Acc>("%s", rank_, -1, Acc::param_tuple(1));' % (self.name, self.name)
+    def Print(self, fid):
+        fid.write(global_space + 'Acc* %s = createGraph<Acc>("%s", rank_, -1, Acc::param_tuple(1));' % (self.name, self.name))
+        fid.write('\n')
 
-
-#
-#for i in s:
-#    if(cf.get(i, 'type')=='conv'):
-#        all_layers.append('conv%d' % conv_cnt)
-#        main_layers.append('conv%d' % conv_cnt)
-#        conv = conv_layer('conv%d' % conv_cnt, 'conv%d' % conv_cnt, 
-#                cf.getint(i, 'padding') if cf.has_option(i, 'padding') else 0, 
-#                cf.getint(i, 'stride') if cf.has_option(i, 'stride') else 1, 
-#                cf.getint(i, 'filterSize'),
-#                cf.getint(i, 'filters'),
-#                cf.get(i, 'neuron') if cf.has_option(i, 'neuron') else 'relu'
-#                )
-#        conv.Print()
-#        conv_cnt += 1
-#
-#    elif(cf.get(i, 'type')=='pool'):
-#        all_layers.append('pool%d' % pool_cnt)
-#        pool_strategy = cf.get(i, 'pool') if cf.has_option(i, 'pool') else 'max'
-#        pool = pool_layer('%s_pool%d' % (pool_strategy, pool_cnt), 'pool%d' % pool_cnt, 
-#                pool_strategy,
-#                cf.getint(i, 'sizeX'),
-#                cf.getint(i, 'stride') if cf.has_option(i, 'stride') else 1, 
-#                cf.getint(i, 'pad') if cf.has_option(i, 'pad') else 0
-#                )
-#        pool.Print()
-#        pool_cnt += 1
-#
-#    elif(cf.get(i, 'type')=='fc'):
-#        all_layers.append('inner%d' % fc_cnt)
-#        main_layers.append('inner%d' % fc_cnt)
-#        fc = fc_layer('inner%d' % fc_cnt, 'inner%d' % fc_cnt, 
-#                cf.getint(i, 'outputs')
-#                )
-#        fc.Print()
-#        fc_cnt += 1
-#
-#    elif(cf.get(i, 'type').startswith('dropout')): # todo modify others
-#        all_layers.append('dropout%d' % dropout_cnt)
-#        dropout = dropout_layer('dropout%d' % dropout_cnt, 'dropout%d' % dropout_cnt, 
-#                0.5
-#                )
-#        dropout.Print()
-#        dropout_cnt += 1
-#
-#Print_last_layers()
-#Print_connections(all_layers, main_layers)
-#Print_tail()
-
-
-'''
-data = data_layer("data", "data_")
-data.Print()
-data_diff = data_layer("data_diff", "data_diff_")
-data_diff.Print()
-label = data_layer("label", "label_", 1, 1)
-label.Print()
-conv = conv_layer('conv1', 'conv1', 3, 2, 7, 64, 'relu')
-conv.Print()
-pool = pool_layer('max_pool1', 'pool1', 'max', 3, 2, 0)
-pool.Print()
-fc = fc_layer('inner', 'inner', 121)
-fc.Print()
-dropout = dropout_layer('dropout', 'dropout', 0.4)
-dropout.Print()
-'''
 
 
 def deal_with_layer(layer):
-    global conv_cnt
-    global fc_cnt
-    global pool_cnt
-    global dropout_cnt
     global all_layers
 
     if (layer.type == 'Data'):
         if (layer.include[0].phase == 0): # 0 = train, 1 = test
             data_source = layer.data_param.source
-            warnings.warn('Data source should be added manually, only the model itself is considered here!')
+            warnings.warn('Data source should be added manually, only this code only construct the model structure!')
+            data = data_layer(layer.type, layer.name, [], layer.top,
+                    layer.data_param.batch_size)
+            all_layers.append(data)
     elif(layer.type == 'Convolution'):
         if hasattr(layer.convolution_param, 'num_output'):
             filters = layer.convolution_param.num_output
@@ -196,7 +231,10 @@ def deal_with_layer(layer):
         print layer.convolution_param.weight_filler.type
         if hasattr(layer.convolution_param, 'weight_filler'):
             w_init_type = layer.convolution_param.weight_filler.type
-            w_init_value = layer.convolution_param.weight_filler.std
+            if hasattr(layer.convolution_param.weight_filler, 'std'):
+                w_init_value = layer.convolution_param.weight_filler.std
+            else:
+                w_init_value = global_init_value
         else:
             w_init_type = 'guassian'
             w_init_value = global_init_value
@@ -210,9 +248,9 @@ def deal_with_layer(layer):
             b_init_value = 0
 
 
-        # Simply give an initialization here, might be changed later according to the next layer
+        #Nowadays, relu is dominant in CNN
         neuron = 'relu'
-        conv = conv_layer('conv%d' % conv_cnt, 'conv%d' % conv_cnt, 
+        conv = conv_layer(layer.type, layer.name, layer.bottom, layer.top,
                 pad,
                 stride,
                 filterSize,
@@ -223,11 +261,16 @@ def deal_with_layer(layer):
                 b_init_type,
                 b_init_value
                 )
-        conv_cnt += 1
         all_layers.append(conv)
 
     elif(layer.type == 'LRN'):
-        warnings.warn('LRN layer is not supported! It is automatically removed from the model!')
+        lrn = lrn_layer(layer.type, layer.name, layer.bottom, layer.top,
+                layer.lrn_param.local_size,
+                layer.lrn_param.alpha,
+                layer.lrn_param.beta)
+        all_layers.append(lrn)
+
+
     elif(layer.type == 'Pooling'):
         # 0 == MAX  1 == AVG
         print 'Pooling type', layer.pooling_param.pool
@@ -249,13 +292,12 @@ def deal_with_layer(layer):
         else:
             pad = 0
 
-        pool = pool_layer('%s_pool%d' % (pool_strategy, pool_cnt), 'pool%d' % pool_cnt, 
+        pool = pool_layer(layer.type, layer.name, layer.bottom, layer.top,
                 pool_strategy,
                 kernel_size,
                 stride,
                 pad
                 )
-        pool_cnt += 1
         all_layers.append(pool)
 
     elif(layer.type == 'InnerProduct'):
@@ -269,7 +311,10 @@ def deal_with_layer(layer):
         # when type is xavier, std is useless
         if hasattr(layer.inner_product_param, 'weight_filler'):
             w_init_type = layer.inner_product_param.weight_filler.type
-            w_init_value = layer.inner_product_param.weight_filler.std
+            if hasattr(layer.convolution_param.weight_filler, 'std'):
+                w_init_value = layer.convolution_param.weight_filler.std
+            else:
+                w_init_value = global_init_value
         else:
             w_init_type = 'guassian'
             w_init_value = global_init_value
@@ -283,38 +328,39 @@ def deal_with_layer(layer):
             b_init_value = 0
 
         # Simply give an initialization here, might be changed later according to the next layer
-        fc = fc_layer('inner%d' % fc_cnt, 'inner%d' % fc_cnt, 
+        fc = fc_layer(layer.type, layer.name, layer.bottom, layer.top,
                 hidden,
                 w_init_type,
                 w_init_value,
                 b_init_type,
                 b_init_value
                 )
-        fc_cnt += 1
         all_layers.append(fc)
 
 
     elif(layer.type == 'Dropout'):
         if hasattr(layer.dropout_param, 'dropout_ratio'):
+            # todo: check the ratio is drop ratio or keep ratio
+            # this version just assumes that it is the same with caffe
             dropout_ratio = layer.dropout_param.dropout_ratio
         else:
-            dropout_ratio = 0.5
+            dropout_ratio = 0.5 
 
-        dropout = dropout_layer('dropout%d' % dropout_cnt, 'dropout%d' % dropout_cnt, 
+        dropout = dropout_layer(layer.type, layer.name, layer.bottom, layer.top,
                 dropout_ratio
                 )
-        dropout_cnt += 1
         all_layers.append(dropout)
 
     elif(layer.type == 'Concat'):
         warnings.warn('Concat layer is not supported! This code is not working properly with this warning!')
-        raise Exception('Concat Layer is Not Supported')
+        raise Exception('Concat Layer is Unimplemented')
     elif(layer.type == 'SoftmaxWithLoss'):
-        pass 
-        #print layer.name
+        softmax = softmaxloss_layer(layer.type, layer.name, layer.bottom, layer.top)
+        all_layers.append(softmax)
+
     elif(layer.type == 'Accuracy'):
-        pass
-        #print layer.name
+        acc = accuracy_layer(layer.type, layer.name, layer.bottom, layer.top)
+        all_layers.append(acc)
 
 
 def calculateNodePairs(nodePair):
@@ -324,54 +370,161 @@ def calculateNodePairs(nodePair):
         ret += 'parallels.push_back({%d, %d});\n' % (rank, device)
     return ret
 
+
+def calculateInAndOutSize():
+
+    dic = {}
+    for layer in all_layers:
+        dic[layer.name] = layer
+
+    for i in range(len(all_layers)):
+        for layer in all_layers:
+            if(not hasattr(layer, 'in_size')):
+                continue
+            if(reduce(lambda x,y:x*y, layer.out_size) != 0):
+                continue
+            collected = 1
+            for sub in layer.bottom:
+                if(reduce(lambda x,y:x*y, dic[sub].out_size) == 0):
+                    collected = 0
+                    break
+            if(collected):
+                if len(layer.bottom):
+                    common_size = dic[layer.bottom[0]].out_size[:]
+                    common_size[0] = 0
+                    for sub in layer.bottom:
+                        assert(common_size[1] == dic[sub].out_size[1] and common_size[2] == dic[sub].out_size[2])
+                        common_size[0] += dic[sub].out_size[0]
+                    layer.in_size = common_size[:]
+                layer.update_out_size()
+                print layer.name, layer.out_size
+
+
+
 def run(argv):
 
-#----------------------------------- all parameters ----------------------------------
-    infoVirtualNetName = 'NewNet'
-
-    # How to construct each layer
-    infoVirtualLayerDetails = ''
-    # How to construct layer interconnections
-    infoVirtualLayerRelations = ''
-    # How to set loss layer
-    infoVirtualLossLayer = ''
-    infoVirtualLossInfo = ''
-    # Layers with weight (Convolution and InnerProductLayer)
-    infoVirtualWeightInfo = []
-
-    infoVirtualBatchSizePerNode = str(64)
-    infoVirtualDataPath = '"../data/bowl_train_lmdb"'
-    infoVirtualDataMean = '"../data/bowl_mean.binaryproto"';
-    infoVirtualWeightNum = ''
-    infoVirtualImageSize = str(224)
-    infoVirtualWeightInitialization = ''
-    infoVirtualAvailabelNodes = calculateNodePairs([[0,3]])
 #----------------------------------- resolve model -----------------------------------
     net = caffe_pb2.NetParameter()                                                                                 
     text_format.Parse(open(argv[1]).read(), net)
     for layer in net.layer:
         deal_with_layer(layer)
+    calculateInAndOutSize()
 
-    get_layer_by_name 
-    infoVirtualWeightInfo = [layer.var_name for layer in all_layers if layer.type_name.startswith('conv') or layer.type_name.startswith('inner')]
-
-    print infoVirtualWeightInfo
-
-
-
-
+#----------------------- output information to separate files -----------------------
+    fid = open('layer_details.txt','w')
+    for layer in all_layers:
+        layer.Print(fid)
+    fid.close()
 
 
+    fid = open('layer_relations.txt','w')
+    # first change the bottom of a layer which is after a layer with dropout
+    dic = {}
+    for layer in all_layers:
+        dic[layer.name] = layer
+
+    for layer in all_layers:
+        if(layer.type=='SoftmaxWithLoss'):
+            fid.write(global_space + '%s->set_label(%s);\n' % (layer.name, 'label_'))
+            fid.write(global_space + '*%s >> *%s;\n' % (layer.bottom[0], layer.name))
+            continue
+
+        if(layer.type=='Accuracy'):
+            fid.write(global_space + '%s->set_label(%s);\n' % (layer.name, 'label_'))
+            fid.write(global_space + 'vector<Blob*>{ %s->top()[0] } >> *%s;\n' % (layer.bottom[0], layer.name))
+            continue
+
+        for j in layer.bottom:
+            if(dic[j].type=='Data'):
+                fid.write(global_space + '*%s >> *%s;\n' % ('B{ data_, data_diff_}', layer.name))
+            if( hasattr(dic[j], 'with_dropout')):
+                if(dic[j].with_dropout):
+                    fid.write(global_space + '*%s >> *%s;\n' % (dic[j].dropout_layer_name, layer.name))
+                else:
+                    fid.write(global_space + '*%s >> *%s;\n' % (j, layer.name))
+            else:
+                fid.write(global_space + '*%s >> *%s;\n' % (j, layer.name))
+
+        if(layer.type=='Dropout'):
+            assert(layer.bottom[0] == layer.top[0] and len(layer.top) == 1 and len(layer.bottom) == 1)
+            dic[layer.bottom[0]].with_dropout = 1
+            dic[layer.bottom[0]].dropout_layer_name = layer.name
+    fid.close()
 
 
+    fid = open('loss_info.txt','w')
+    softmaxloss_layer_name = ""
+    accuracy_layer_name = ""
+    for layer in all_layers:
+        if(layer.type=='SoftmaxWithLoss'):
+            softmaxloss_layer_name = layer.name
+        if(layer.type=='Accuracy'):
+            accuracy_layer_name = layer.name
+    fid.write(global_space + '%s = { %s->loss()[0], %s->loss()[0] };\n' % ('loss_', softmaxloss_layer_name, accuracy_layer_name))
+    fid.close()
 
-#-------------------------------------   output   ------------------------------------
-    infoVirtualWeightInfo = str(len(infoVirtualWeightInfo))
+
+    layer_with_weights = [layer.name for layer in all_layers if layer.type.startswith('Conv') or layer.type.startswith('Inner')]
+    fid = open('weight_info.txt','w')
+    tmp = global_space + 'vector<Layer*> layers = {'
+    cnt = 0
+    for layername in layer_with_weights:
+        cnt += 1
+        tmp += ' '+layername
+        if(cnt != len(layer_with_weights)):
+            tmp += ','
+        else:
+            tmp += ' };\n'
+        if(cnt % 4 == 0):
+            tmp += '\n' + global_space + global_space
+    fid.write(tmp)
+    fid.close()
+
+
+    # calculate weights of each layer, support xavier and gaussian
+
+
+    fid = open('weight_initialization.txt', 'w')
+    index = 0
+    for layername in layer_with_weights:
+        if(dic[layername].w_init_type == 'gaussian'):
+            tmp = global_space + global_space + 'parallel_net->init<Gaussian>({%d}, Gaussian::param_tuple(0., %f));' % (index, dic[layername].w_init_value)
+        elif(dic[layername].w_init_type == 'xavier'):
+            scale = sqrt(3.0 / reduce(lambda x,y:x*y, dic[layername].in_size))
+            tmp = global_space + global_space + 'parallel_net->init<Uniform>({%d}, Uniform::param_tuple(-%f, %f));' % (index, scale, scale)
+        fid.write(tmp + '\n')
+        index += 1
+        tmp = global_space + global_space + 'parallel_net->init<Constant>({%d}, Constant::param_tuple(%f));' % (index, dic[layername].b_init_value)
+        fid.write(tmp + '\n')
+        index += 1
+    fid.close()
+        
+
+
+#----------------------------------- all parameters ----------------------------------
+    infoVirtualNetName = 'NewNet'
+
+    # How to construct each layer
+    infoVirtualLayerDetails = ''.join(open('layer_details.txt').readlines())
+    # How to construct layer interconnections
+    infoVirtualLayerRelations = ''.join(open('layer_relations.txt').readlines())
+    # How to set loss layer
+    infoVirtualLossInfo = ''.join(open('loss_info.txt').readlines())
+    # Layers with weight (Convolution and InnerProductLayer)
+    infoVirtualWeightInfo = ''.join(open('weight_info.txt').readlines())
+
+    infoVirtualBatchSizePerNode = str(64)
+    infoVirtualDataPath = '"../data/bowl_train_lmdb"'
+    infoVirtualDataMean = '"../data/bowl_mean.binaryproto"';
+    infoVirtualWeightNum = str(len(layer_with_weights) * 2)
+    infoVirtualImageSize = str(224)
+    infoVirtualWeightInitialization = ''.join(open('weight_initialization.txt').readlines())
+    infoVirtualAvailabelNodes = calculateNodePairs([[0,3]])
+#-------------------------------------   combine information   -----------------------
 
     infoVirtualNethpp = ''.join(open('VirtualNet.hpp').readlines())
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualLayerDetails;',infoVirtualLayerDetails)
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualLayerRelations;',infoVirtualLayerRelations)
-    infoVirtualNethpp = infoVirtualNethpp.replace('VirtualLossLayer;',infoVirtualLossLayer)
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualLossInfo;',infoVirtualLossInfo)
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualWeightInfo;',infoVirtualWeightInfo)
     infoVirtualNethpp = infoVirtualNethpp.replace('VirtualNetName;',infoVirtualNetName)
@@ -396,7 +549,7 @@ def run(argv):
 if __name__ == "__main__":
     if(len(sys.argv) != 2):
         print 'Usage: python read_caffe_cfg.py caffe_model_name'
-        print 'Example: python read_caffe_cfg.py ../../../models/bvlc_alexnet/train_val.prototxt'
+        print 'Example: python read_caffe_cfg.py ../../../../models/bvlc_alexnet/train_val.prototxt'
         exit(0)
 
     run(sys.argv)

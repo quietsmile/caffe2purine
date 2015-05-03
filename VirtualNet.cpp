@@ -48,7 +48,7 @@ void initialize(DataParallel<VirtualNetName<false>, AllReduce>* parallel_net,
         [](int i)->int {
           return i * 2 + 1;
         });
-    VirtualWeightInitialization;
+VirtualWeightInitialization;
   } else {
     parallel_net->load(snapshot);
   }

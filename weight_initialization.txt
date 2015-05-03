@@ -1,0 +1,16 @@
+    parallel_net->init<Gaussian>({0}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({1}, Constant::param_tuple(0.000000));
+    parallel_net->init<Gaussian>({2}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({3}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({4}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({5}, Constant::param_tuple(0.000000));
+    parallel_net->init<Gaussian>({6}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({7}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({8}, Gaussian::param_tuple(0., 0.010000));
+    parallel_net->init<Constant>({9}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({10}, Gaussian::param_tuple(0., 1.000000));
+    parallel_net->init<Constant>({11}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({12}, Gaussian::param_tuple(0., 1.000000));
+    parallel_net->init<Constant>({13}, Constant::param_tuple(0.100000));
+    parallel_net->init<Gaussian>({14}, Gaussian::param_tuple(0., 1.000000));
+    parallel_net->init<Constant>({15}, Constant::param_tuple(0.000000));
